@@ -7,7 +7,11 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.12"
+pyperclip = "^1.9.0"
+ruff = "^0.8.3"
 
+[tool.poetry.scripts]
+file-selector = "file_selector.__main__:main"
 
 [build-system]
 requires = ["poetry-core"]
