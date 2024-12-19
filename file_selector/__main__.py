@@ -1,6 +1,11 @@
 """
 A simple command-line tool to browse a directory tree, select files or directories,
 and copy their contents (in a formatted snippet) to the clipboard.
+
+New Feature:
+- Press Shift+> on a highlighted directory to hide all its files and nested directories.
+- Press Shift+< on a highlighted directory to unhide them.
+All other functionality remains the same.
 """
 
 import curses
@@ -179,6 +184,31 @@ def toggle_selection(
             selected.add(rel_path)
 
 
+def get_visible_indices(
+    tree: List[Tuple[str, int, bool]], collapsed: Set[str]
+) -> List[int]:
+    """
+    Given the full tree and a set of collapsed directories, return the indices
+    of the items that should be visible.
+
+    We hide any item that is inside a collapsed directory (except the directory itself).
+    """
+    visible = []
+    for i, (p, depth, is_dir) in enumerate(tree):
+        # Check if this item is inside any collapsed directory
+        # A directory d is collapsed means all items under d are hidden,
+        # but d itself stays visible.
+        hidden = False
+        for c in collapsed:
+            # If p != c and p starts with c + os.sep, it's hidden
+            if p != c and p.startswith(c + os.sep):
+                hidden = True
+                break
+        if not hidden:
+            visible.append(i)
+    return visible
+
+
 def main(stdscr):
     """
     The main interactive UI loop using curses.
@@ -207,17 +237,32 @@ def main(stdscr):
     tree = build_file_tree(root)
 
     selected = set()
+    collapsed = set()  # Keep track of directories that are collapsed
+
     current_index = 0
     number_buffer = ""  # For handling number inputs for jumps and counts
 
     # Force initial clipboard update
     update_clipboard(selected, root)
 
-    # To force a full redraw after selection toggles
+    # To force a full redraw after selection toggles or view changes
     last_start_line = -1
     last_current_index = -1
 
     while True:
+        # Compute visible indices based on collapsed state
+        visible_indices = get_visible_indices(tree, collapsed)
+        if not visible_indices:
+            # If nothing is visible (extreme edge case?), reset collapse and show all
+            collapsed.clear()
+            visible_indices = get_visible_indices(tree, collapsed)
+
+        # Ensure current_index is within range
+        if current_index >= len(visible_indices):
+            current_index = len(visible_indices) - 1
+        if current_index < 0:
+            current_index = 0
+
         h, w = stdscr.getmaxyx()
         # We'll show the navigation bar at the top (line 0)
         # File listing area below that
@@ -227,14 +272,14 @@ def main(stdscr):
         middle = max_lines // 2
 
         start_line = max(0, current_index - middle)
-        if start_line + max_lines > len(tree):
-            start_line = max(0, len(tree) - max_lines)
+        if start_line + max_lines > len(visible_indices):
+            start_line = max(0, len(visible_indices) - max_lines)
 
         # Draw navigation bar at the top (line 0)
         stdscr.move(0, 0)
         stdscr.clrtoeol()
         stdscr.attron(curses.color_pair(1))
-        nav_line = "Navigation: ↑/↓/j/k [count] for movement | [count]G/go to line | gg top | q quit | Enter toggle"
+        nav_line = "Navigation: ↑/↓/j/k [count] for movement | [count]G/go to line | gg top | q quit | Enter toggle | Shift+> hide | Shift+< unhide"
         # Truncate if too long
         nav_line = nav_line[:w]
         stdscr.addstr(0, 0, nav_line)
@@ -243,21 +288,22 @@ def main(stdscr):
 
         # Only redraw lines if something changed
         if start_line != last_start_line or current_index != last_current_index:
-            for i, (p, depth, is_dir) in enumerate(
-                tree[start_line : start_line + max_lines]
+            # Draw each visible line
+            for i, vi in enumerate(
+                visible_indices[start_line : start_line + max_lines]
             ):
-                actual_i = i + start_line
-                rel_path, dp, dr = tree[actual_i]
-                filename = os.path.basename(rel_path)
-                indent = "  " * dp
-                marker = "[D]" if dr else "   "
-                sel_mark = "[x]" if rel_path in selected else "[ ]"
-                line_number = actual_i + 1
+                p, depth, is_dir = tree[vi]
+                filename = os.path.basename(p)
+                indent = "  " * depth
+                marker = "[D]" if is_dir else "   "
+                sel_mark = "[x]" if p in selected else "[ ]"
+                # line_number shown is based on the visible line number, not the original tree index
+                line_number = i + start_line + 1
                 line_str = f"{line_number:4d} {indent}{sel_mark} {marker} {filename}"
 
                 stdscr.move(i + 1, 0)  # files start at line 1
                 stdscr.clrtoeol()
-                if actual_i == current_index:
+                if (i + start_line) == current_index:
                     stdscr.attron(curses.A_REVERSE)
                     stdscr.addstr(i + 1, 0, line_str[:w])
                     stdscr.attroff(curses.A_REVERSE)
@@ -266,9 +312,8 @@ def main(stdscr):
                 stdscr.noutrefresh()
 
             # Clear any extra lines if list got shorter
-            for clr_i in range(
-                len(tree[start_line : start_line + max_lines]) + 1, max_lines + 1
-            ):
+            shown_count = len(visible_indices[start_line : start_line + max_lines])
+            for clr_i in range(shown_count + 1, max_lines + 1):
                 stdscr.move(clr_i + 1, 0)
                 stdscr.clrtoeol()
                 stdscr.noutrefresh()
@@ -286,13 +331,13 @@ def main(stdscr):
             number_buffer = ""
         elif key in [curses.KEY_DOWN, ord("j")]:
             step = int(number_buffer) if number_buffer else 1
-            current_index = min(current_index + step, len(tree) - 1)
+            current_index = min(current_index + step, len(visible_indices) - 1)
             number_buffer = ""
         elif key == ord("g"):
             if number_buffer:
-                # Go to specific line number
+                # Go to specific line number in visible lines
                 target = int(number_buffer) - 1
-                current_index = min(max(0, target), len(tree) - 1)
+                current_index = min(max(0, target), len(visible_indices) - 1)
                 number_buffer = ""
             else:
                 # Temporarily disable nodelay to wait for the next char
@@ -301,31 +346,49 @@ def main(stdscr):
                 next_key = stdscr.getch()
                 stdscr.nodelay(1)
                 if next_key == ord("g"):
-                    # gg pressed
+                    # gg pressed - go to top visible line
                     current_index = 0
                 elif next_key != -1 and next_key != ord("g"):
                     # If another key was pressed, interpret it as a normal key
-                    # Add it back to the number_buffer if it's a digit
                     if ord("0") <= next_key <= ord("9"):
                         number_buffer = chr(next_key)
         elif key == ord("G"):
             if number_buffer:
                 target = int(number_buffer) - 1
-                current_index = min(max(0, target), len(tree) - 1)
+                current_index = min(max(0, target), len(visible_indices) - 1)
             else:
-                # Go to end of list
-                current_index = len(tree) - 1
+                # Go to end of visible list
+                current_index = len(visible_indices) - 1
             number_buffer = ""
         elif ord("0") <= key <= ord("9"):
             number_buffer += chr(key)
         elif key == ord("q"):
             break
         elif key == 10:  # ENTER
-            toggle_selection(selected, tree, current_index, root)
-            update_clipboard(selected, root)
-            # Force redraw to show updated [x]
-            last_start_line = -1
-            last_current_index = -1
+            if visible_indices:
+                toggle_selection(selected, tree, visible_indices[current_index], root)
+                update_clipboard(selected, root)
+                # Force redraw
+                last_start_line = -1
+                last_current_index = -1
+        elif key == ord(">"):  # Shift+>
+            # Collapse the currently highlighted directory if it's a directory
+            if visible_indices:
+                rel_path, depth, is_dir = tree[visible_indices[current_index]]
+                if is_dir and rel_path not in collapsed:
+                    collapsed.add(rel_path)
+                    # Force redraw
+                    last_start_line = -1
+                    last_current_index = -1
+        elif key == ord("<"):  # Shift+<
+            # Uncollapse the currently highlighted directory if it's collapsed
+            if visible_indices:
+                rel_path, depth, is_dir = tree[visible_indices[current_index]]
+                if is_dir and rel_path in collapsed:
+                    collapsed.remove(rel_path)
+                    # Force redraw
+                    last_start_line = -1
+                    last_current_index = -1
 
     # End curses mode on exit
     curses.nocbreak()
