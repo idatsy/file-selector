@@ -144,9 +144,7 @@ def update_clipboard(selected: Set[str], root: str):
     pyperclip.copy(snippet)
 
 
-def toggle_selection(
-    selected: Set[str], tree: List[Tuple[str, int, bool]], index: int, root: str
-):
+def toggle_selection(selected: Set[str], tree: List[Tuple[str, int, bool]], index: int, root: str):
     """
     Toggle the selection of a file or directory at a given index in the tree.
     If a directory, toggle all of its descendants.
@@ -184,9 +182,7 @@ def toggle_selection(
             selected.add(rel_path)
 
 
-def get_visible_indices(
-    tree: List[Tuple[str, int, bool]], collapsed: Set[str]
-) -> List[int]:
+def get_visible_indices(tree: List[Tuple[str, int, bool]], collapsed: Set[str]) -> List[int]:
     """
     Given the full tree and a set of collapsed directories, return the indices
     of the items that should be visible.
@@ -289,9 +285,7 @@ def main(stdscr):
         # Only redraw lines if something changed
         if start_line != last_start_line or current_index != last_current_index:
             # Draw each visible line
-            for i, vi in enumerate(
-                visible_indices[start_line : start_line + max_lines]
-            ):
+            for i, vi in enumerate(visible_indices[start_line : start_line + max_lines]):
                 p, depth, is_dir = tree[vi]
                 filename = os.path.basename(p)
                 indent = "  " * depth
