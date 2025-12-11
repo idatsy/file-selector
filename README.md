@@ -26,7 +26,7 @@ This is a minimal tool that allows you to navigate through a directory tree usin
 
 ## Requirements
 
-- Python 3.6+  
+- Python 3.10+  
 - `pyperclip`
 - linux
 - xclip

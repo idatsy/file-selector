@@ -11,7 +11,10 @@ pyperclip = "^1.9.0"
 ruff = "^0.8.3"
 
 [tool.poetry.scripts]
-file-selector = "file_selector.__main__:main"
+file-selector = "file_selector.__main__:run"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^9.0.2"
 
 [build-system]
 requires = ["poetry-core"]

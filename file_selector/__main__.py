@@ -28,7 +28,7 @@ def get_language_for_file(path: str) -> str:
     match ext:
         case ".c":
             return "c"
-        case ".cpp":
+        case ".cpp" | ".cc" | ".cxx":
             return "cpp"
         case ".cs":
             return "csharp"
@@ -36,7 +36,7 @@ def get_language_for_file(path: str) -> str:
             return "go"
         case ".java":
             return "java"
-        case ".js":
+        case ".js" | ".jsx":
             return "javascript"
         case ".kt":
             return "kotlin"
@@ -50,10 +50,32 @@ def get_language_for_file(path: str) -> str:
             return "python"
         case ".rs":
             return "rust"
-        case ".ts":
+        case ".ts" | ".tsx":
             return "typescript"
-        case "sol":
+        case ".sol":
             return "solidity"
+        case ".html" | ".htm":
+            return "html"
+        case ".css":
+            return "css"
+        case ".scss" | ".sass":
+            return "scss"
+        case ".json":
+            return "json"
+        case ".yaml" | ".yml":
+            return "yaml"
+        case ".toml":
+            return "toml"
+        case ".sh" | ".bash":
+            return "bash"
+        case ".md" | ".markdown":
+            return "markdown"
+        case ".sql":
+            return "sql"
+        case ".rb":
+            return "ruby"
+        case ".swift":
+            return "swift"
         case _:
             return ""
 
@@ -75,6 +97,19 @@ def read_file_content(filepath: str) -> str:
         return ""
 
 
+IGNORED_DIRS = {
+    ".git",
+    "node_modules",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+    ".idea",
+    ".vscode",
+}
+
+
 def build_file_tree(root: str) -> List[Tuple[str, int, bool]]:
     """
     Recursively build a file tree from the given root directory.
@@ -90,6 +125,8 @@ def build_file_tree(root: str) -> List[Tuple[str, int, bool]]:
     def recurse(path: str, depth: int):
         entries = sorted(os.listdir(path))
         for e in entries:
+            if e in IGNORED_DIRS:
+                continue
             full_path = os.path.join(path, e)
             rel_path = os.path.relpath(full_path, root)
             is_dir = os.path.isdir(full_path)
@@ -132,16 +169,23 @@ def build_snippet(selected: Set[str], root: str) -> str:
     return final_snippet
 
 
-def update_clipboard(selected: Set[str], root: str):
+def update_clipboard(selected: Set[str], root: str) -> str | None:
     """
     Update the system clipboard with the current snippet of selected files.
 
     Args:
         selected (Set[str]): A set of selected paths.
         root (str): The root directory path.
+
+    Returns:
+        str | None: Error message if clipboard update failed, None on success.
     """
     snippet = build_snippet(selected, root)
-    pyperclip.copy(snippet)
+    try:
+        pyperclip.copy(snippet)
+        return None
+    except Exception as e:
+        return f"Clipboard error: {e}"
 
 
 def toggle_selection(selected: Set[str], tree: List[Tuple[str, int, bool]], index: int, root: str):
@@ -237,9 +281,10 @@ def main(stdscr):
 
     current_index = 0
     number_buffer = ""  # For handling number inputs for jumps and counts
+    clipboard_error = None  # Error message from clipboard operations
 
     # Force initial clipboard update
-    update_clipboard(selected, root)
+    clipboard_error = update_clipboard(selected, root)
 
     # To force a full redraw after selection toggles or view changes
     last_start_line = -1
@@ -274,12 +319,15 @@ def main(stdscr):
         # Draw navigation bar at the top (line 0)
         stdscr.move(0, 0)
         stdscr.clrtoeol()
-        stdscr.attron(curses.color_pair(1))
-        nav_line = "Navigation: ↑/↓/j/k [count] for movement | [count]G/go to line | gg top | q quit | Enter toggle | Shift+> hide | Shift+< unhide"
-        # Truncate if too long
-        nav_line = nav_line[:w]
-        stdscr.addstr(0, 0, nav_line)
-        stdscr.attroff(curses.color_pair(1))
+        if clipboard_error:
+            stdscr.attron(curses.A_BOLD)
+            stdscr.addstr(0, 0, clipboard_error[:w])
+            stdscr.attroff(curses.A_BOLD)
+        else:
+            stdscr.attron(curses.color_pair(1))
+            nav_line = "Navigation: ↑/↓/j/k [count] for movement | [count]G/go to line | gg top | q quit | Enter toggle | Shift+> hide | Shift+< unhide"
+            stdscr.addstr(0, 0, nav_line[:w])
+            stdscr.attroff(curses.color_pair(1))
         stdscr.noutrefresh()
 
         # Only redraw lines if something changed
@@ -361,7 +409,7 @@ def main(stdscr):
         elif key == 10:  # ENTER
             if visible_indices:
                 toggle_selection(selected, tree, visible_indices[current_index], root)
-                update_clipboard(selected, root)
+                clipboard_error = update_clipboard(selected, root)
                 # Force redraw
                 last_start_line = -1
                 last_current_index = -1
@@ -391,4 +439,10 @@ def main(stdscr):
     curses.endwin()
 
 
-curses.wrapper(main)
+def run():
+    """Entry point for the file-selector CLI."""
+    curses.wrapper(main)
+
+
+if __name__ == "__main__":
+    run()
